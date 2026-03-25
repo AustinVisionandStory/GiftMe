@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "default": "giftme-dev",
+    "dev": "giftme-dev",
+    "prod": "giftme-prod"
+  }
+}

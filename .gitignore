@@ -1,0 +1,15 @@
+.expo/
+.firebase/
+.turbo/
+dist/
+node_modules/
+functions/lib/
+functions/node_modules/
+coverage/
+*.log
+.DS_Store
+.env
+.env.local
+.env.production
+GoogleService-Info.plist
+google-services.json
