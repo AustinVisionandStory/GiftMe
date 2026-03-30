@@ -1,13 +1,14 @@
 import { Link } from "expo-router";
-import * as AppleAuthentication from "expo-apple-authentication";
 import { useEffect, useState } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 
+import { AppleSignInButton } from "@/src/components/AppleSignInButton";
 import { FormTextInput } from "@/src/components/FormTextInput";
 import { PrimaryButton } from "@/src/components/PrimaryButton";
 import { Screen } from "@/src/components/Screen";
 import { SectionCard } from "@/src/components/SectionCard";
 import {
+  getAppleAuthStatus,
   getFriendlyAuthError,
   getGoogleAuthStatus,
   signInWithApple,
@@ -23,18 +24,51 @@ export default function SignInScreen() {
     "email" | "google" | "apple" | null
   >(null);
   const [error, setError] = useState<string | null>(null);
-  const [appleAvailable, setAppleAvailable] = useState(false);
-
-  const googleStatus = getGoogleAuthStatus();
+  const [googleStatus, setGoogleStatus] = useState({
+    enabled: false,
+    reason: "",
+  });
+  const [appleStatus, setAppleStatus] = useState({
+    enabled: false,
+    reason: "",
+  });
 
   useEffect(() => {
-    if (Platform.OS !== "ios") {
-      return;
-    }
+    let active = true;
 
-    AppleAuthentication.isAvailableAsync()
-      .then(setAppleAvailable)
-      .catch(() => setAppleAvailable(false));
+    getGoogleAuthStatus()
+      .then((status) => {
+        if (active) {
+          setGoogleStatus(status);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setGoogleStatus({
+            enabled: false,
+            reason: "Google Sign In is unavailable right now.",
+          });
+        }
+      });
+
+    getAppleAuthStatus()
+      .then((status) => {
+        if (active) {
+          setAppleStatus(status);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAppleStatus({
+            enabled: false,
+            reason: "Apple Sign In is unavailable right now.",
+          });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   async function handleEmailSignIn() {
@@ -119,13 +153,11 @@ export default function SignInScreen() {
         {!googleStatus.enabled ? (
           <Text style={styles.hint}>{googleStatus.reason}</Text>
         ) : null}
-        {Platform.OS === "ios" && appleAvailable ? (
-          <AppleAuthentication.AppleAuthenticationButton
-            buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
-            buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
-            cornerRadius={999}
-            onPress={() => void handleAppleSignIn()}
-            style={styles.appleButton}
+        {appleStatus.enabled ? (
+          <AppleSignInButton
+            disabled={loadingAction !== null && loadingAction !== "apple"}
+            loading={loadingAction === "apple"}
+            onPress={handleAppleSignIn}
           />
         ) : null}
         <Text style={styles.linkRow}>
@@ -186,9 +218,5 @@ const styles = StyleSheet.create({
   link: {
     color: theme.colors.clayDark,
     fontWeight: "700",
-  },
-  appleButton: {
-    width: "100%",
-    height: 54,
   },
 });

@@ -1,66 +1,39 @@
-import { GoogleSignin, statusCodes } from "@react-native-google-signin/google-signin";
-import * as AppleAuthentication from "expo-apple-authentication";
-import { NativeModules, Platform } from "react-native";
+import { Platform } from "react-native";
 import {
-  GoogleAuthProvider,
-  OAuthProvider,
   createUserWithEmailAndPassword,
-  signInWithCredential,
   signInWithEmailAndPassword,
-  signOut,
 } from "firebase/auth";
 
 import { auth } from "@/src/lib/firebase/client";
-import { firebaseEnv } from "@/src/lib/firebase/env";
-import { createRawNonce, hashNonce } from "@/src/utils/nonce";
 
-let googleConfigured = false;
+import type {
+  AuthProviderStatus,
+  PlatformAuthAdapter,
+} from "./auth.contract";
 
-function canUseGoogleSignIn() {
-  return Boolean(NativeModules.RNGoogleSignin);
-}
+let authAdapterPromise: Promise<PlatformAuthAdapter> | null = null;
 
-function hasGoogleClientIds() {
-  return Boolean(
-    firebaseEnv.googleWebClientId &&
-      (firebaseEnv.googleIosClientId || firebaseEnv.googleAndroidClientId),
-  );
-}
-
-function configureGoogleIfNeeded() {
-  if (googleConfigured || !canUseGoogleSignIn()) {
-    return;
+async function getAuthAdapter(): Promise<PlatformAuthAdapter> {
+  if (authAdapterPromise) {
+    return authAdapterPromise;
   }
 
-  GoogleSignin.configure({
-    webClientId: firebaseEnv.googleWebClientId,
-    iosClientId: firebaseEnv.googleIosClientId || undefined,
-    offlineAccess: false,
-  });
+  authAdapterPromise =
+    Platform.OS === "web"
+      ? import("./auth.web").then((module) => module.platformAuthAdapter)
+      : import("./auth.native").then((module) => module.platformAuthAdapter);
 
-  googleConfigured = true;
+  return authAdapterPromise;
 }
 
-export function getGoogleAuthStatus() {
-  if (!hasGoogleClientIds()) {
-    return {
-      enabled: false,
-      reason: "Add Google OAuth client IDs to your Expo env to enable Google.",
-    };
-  }
+export async function getGoogleAuthStatus(): Promise<AuthProviderStatus> {
+  const adapter = await getAuthAdapter();
+  return adapter.getGoogleAuthStatus();
+}
 
-  if (!canUseGoogleSignIn()) {
-    return {
-      enabled: false,
-      reason:
-        "Google Sign In requires a native development or production build.",
-    };
-  }
-
-  return {
-    enabled: true,
-    reason: "",
-  };
+export async function getAppleAuthStatus(): Promise<AuthProviderStatus> {
+  const adapter = await getAuthAdapter();
+  return adapter.getAppleAuthStatus();
 }
 
 export async function registerWithEmail(email: string, password: string) {
@@ -72,65 +45,18 @@ export async function signInWithEmail(email: string, password: string) {
 }
 
 export async function signInWithGoogle() {
-  const availability = getGoogleAuthStatus();
-
-  if (!availability.enabled) {
-    throw new Error(availability.reason);
-  }
-
-  configureGoogleIfNeeded();
-
-  if (Platform.OS === "android") {
-    await GoogleSignin.hasPlayServices({
-      showPlayServicesUpdateDialog: true,
-    });
-  }
-
-  const result = await GoogleSignin.signIn();
-
-  if (result.type !== "success" || !result.data.idToken) {
-    throw new Error("Google sign-in was cancelled before completing.");
-  }
-
-  const credential = GoogleAuthProvider.credential(result.data.idToken);
-  return signInWithCredential(auth, credential);
+  const adapter = await getAuthAdapter();
+  return adapter.signInWithGoogle();
 }
 
 export async function signInWithApple() {
-  const rawNonce = await createRawNonce();
-  const hashedNonce = await hashNonce(rawNonce);
-
-  const credentialState = await AppleAuthentication.signInAsync({
-    requestedScopes: [
-      AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-      AppleAuthentication.AppleAuthenticationScope.EMAIL,
-    ],
-    nonce: hashedNonce,
-  });
-
-  if (!credentialState.identityToken) {
-    throw new Error("Apple did not return an identity token.");
-  }
-
-  const provider = new OAuthProvider("apple.com");
-  const credential = provider.credential({
-    idToken: credentialState.identityToken,
-    rawNonce,
-  });
-
-  return signInWithCredential(auth, credential);
+  const adapter = await getAuthAdapter();
+  return adapter.signInWithApple();
 }
 
 export async function signOutUser() {
-  await signOut(auth);
-
-  if (canUseGoogleSignIn()) {
-    try {
-      await GoogleSignin.signOut();
-    } catch {
-      // Firebase session sign out already succeeded, so keep this best effort.
-    }
-  }
+  const adapter = await getAuthAdapter();
+  return adapter.signOutUser();
 }
 
 export function getFriendlyAuthError(error: unknown) {
@@ -138,9 +64,19 @@ export function getFriendlyAuthError(error: unknown) {
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    error.code === statusCodes.SIGN_IN_CANCELLED
+    typeof error.code === "string"
   ) {
-    return "Google sign-in was cancelled.";
+    if (error.code === "SIGN_IN_CANCELLED") {
+      return "Google sign-in was cancelled.";
+    }
+
+    if (error.code === "auth/popup-closed-by-user") {
+      return "The sign-in window was closed before finishing.";
+    }
+
+    if (error.code === "auth/cancelled-popup-request") {
+      return "Another sign-in attempt is already in progress.";
+    }
   }
 
   if (error instanceof Error) {

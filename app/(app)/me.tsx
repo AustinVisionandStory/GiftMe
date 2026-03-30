@@ -1,4 +1,3 @@
-import * as ImagePicker from "expo-image-picker";
 import { useEffect, useState } from "react";
 import { StyleSheet, Text } from "react-native";
 
@@ -10,6 +9,7 @@ import { Screen } from "@/src/components/Screen";
 import { SectionCard } from "@/src/components/SectionCard";
 import { useSession } from "@/src/context/SessionProvider";
 import { signOutUser } from "@/src/services/auth";
+import { pickAvatarImage } from "@/src/services/mediaPicker";
 import { updateMyProfile, uploadAvatarAsync } from "@/src/services/profile";
 import { theme } from "@/src/theme";
 
@@ -34,22 +34,19 @@ export default function MeScreen() {
   }, [profile]);
 
   async function handlePickAvatar() {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    try {
+      const nextAvatarUri = await pickAvatarImage();
 
-    if (!permission.granted) {
-      setError("Photo access is required before you can change your avatar.");
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.9,
-    });
-
-    if (!result.canceled) {
-      setAvatarUri(result.assets[0].uri);
+      if (nextAvatarUri) {
+        setError(null);
+        setAvatarUri(nextAvatarUri);
+      }
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "We couldn't open the image picker.",
+      );
     }
   }
 
